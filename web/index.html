@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Starship V1 · 3D 交互预览</title>
+  <style>
+    :root {
+      --bg-deep: #070914;
+      --bg-panel: rgba(12, 16, 34, 0.78);
+      --border: rgba(130, 160, 255, 0.20);
+      --border-gold: rgba(226, 166, 84, 0.45);
+      --text-main: #eef2ff;
+      --text-dim: #9aa7cc;
+      --accent-cyan: #38e2ff;
+      --accent-gold: #e2a654;
+      --accent-purple: #7d5cff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: radial-gradient(circle at 50% 42%, #131936 0%, #090c1c 58%, #04050c 100%);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+      user-select: none;
+    }
+    #canvas-wrap { position: fixed; inset: 0; }
+    canvas { display: block; width: 100%; height: 100%; outline: none; }
+
+    /* Loading Overlay */
+    #loader {
+      position: fixed; inset: 0; z-index: 40;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      background: rgba(7, 9, 20, 0.92); backdrop-filter: blur(8px);
+      transition: opacity 0.4s ease;
+    }
+    #loader.hidden { opacity: 0; pointer-events: none; }
+    .spinner {
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 3px solid rgba(56, 226, 255, 0.2);
+      border-top-color: var(--accent-cyan);
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loader-text { font-size: 14px; color: var(--text-dim); letter-spacing: 0.5px; }
+
+    /* Top-left HUD */
+    .hud-header {
+      position: fixed; top: 18px; left: 20px; z-index: 10;
+      padding: 12px 16px; border-radius: 12px;
+      background: var(--bg-panel); border: 1px solid var(--border);
+      backdrop-filter: blur(14px);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      pointer-events: auto;
+    }
+    .hud-title-row { display: flex; align-items: center; gap: 10px; }
+    .hud-badge {
+      font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+      background: rgba(56, 226, 255, 0.14); color: var(--accent-cyan);
+      border: 1px solid rgba(56, 226, 255, 0.35);
+    }
+    .hud-header h1 {
+      font-size: 16px; font-weight: 600; letter-spacing: 0.4px;
+      background: linear-gradient(90deg, #ffffff, #c8d8ff);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hud-specs {
+      margin-top: 6px; font-size: 12px; color: var(--text-dim);
+      display: flex; flex-wrap: wrap; gap: 10px;
+    }
+    .hud-specs span strong { color: var(--accent-gold); font-weight: 600; }
+
+    /* Bottom-left Zone Legend */
+    .legend-panel {
+      position: fixed; bottom: 18px; left: 20px; z-index: 10;
+      padding: 10px 14px; border-radius: 12px;
+      background: var(--bg-panel); border: 1px solid var(--border);
+      backdrop-filter: blur(14px);
+      display: flex; flex-direction: column; gap: 6px;
+      max-width: 340px;
+    }
+    .legend-title { font-size: 11px; font-weight: 600; color: var(--text-dim); letter-spacing: 0.6px; }
+    .legend-items { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #dbe3ff; }
+    .dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+    /* Right Control Panel */
+    .control-panel {
+      position: fixed; top: 18px; right: 20px; bottom: 18px; z-index: 10;
+      width: 288px; padding: 16px; border-radius: 14px;
+      background: var(--bg-panel); border: 1px solid var(--border);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+      display: flex; flex-direction: column; gap: 16px;
+      overflow-y: auto;
+    }
+    .control-panel::-webkit-scrollbar { width: 5px; }
+    .control-panel::-webkit-scrollbar-thumb { background: rgba(154,167,204,0.25); border-radius: 999px; }
+
+    .section-label {
+      font-size: 11px; font-weight: 600; color: var(--accent-gold);
+      text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .btn-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
+    }
+    .btn-grid.single { grid-template-columns: 1fr; }
+    button {
+      appearance: none; border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.04); color: var(--text-main);
+      font-family: inherit; font-size: 12.5px; font-weight: 500;
+      padding: 8px 10px; border-radius: 8px; cursor: pointer;
+      transition: all 0.16s ease; text-align: center;
+    }
+    button:hover {
+      background: rgba(125, 92, 255, 0.22);
+      border-color: rgba(125, 92, 255, 0.55);
+    }
+    button.active {
+      background: linear-gradient(135deg, rgba(56, 226, 255, 0.22), rgba(125, 92, 255, 0.32));
+      border-color: var(--accent-cyan);
+      color: #ffffff;
+      box-shadow: 0 0 12px rgba(56, 226, 255, 0.22);
+    }
+    button.gold-btn {
+      border-color: var(--border-gold);
+      background: rgba(226, 166, 84, 0.10);
+      color: #ffe3b8;
+    }
+    button.gold-btn:hover {
+      background: rgba(226, 166, 84, 0.24);
+      border-color: var(--accent-gold);
+    }
+
+    .axis-pills { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 10px; }
+    .axis-pills button { padding: 6px 4px; font-size: 11.5px; }
+
+    .slider-row { display: flex; flex-direction: column; gap: 6px; }
+    .slider-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); }
+    .slider-meta span:last-child { color: var(--accent-cyan); font-variant-numeric: tabular-nums; }
+    input[type="range"] {
+      width: 100%; accent-color: var(--accent-cyan); cursor: pointer;
+    }
+
+    .hint-text {
+      margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border);
+      font-size: 11.5px; line-height: 1.55; color: var(--text-dim);
+    }
+
+    /* Renders Lightbox Modal */
+    #gallery-modal {
+      position: fixed; inset: 0; z-index: 50;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(4, 6, 15, 0.88); backdrop-filter: blur(12px);
+      padding: 28px;
+    }
+    #gallery-modal.open { display: flex; }
+    .gallery-card {
+      width: min(1040px, 100%); max-height: 92vh; overflow-y: auto;
+      background: #0d1226; border: 1px solid var(--border-gold); border-radius: 16px;
+      padding: 20px; box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+    }
+    .gallery-top {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
+    }
+    .gallery-top h2 { font-size: 16px; color: #ffe7c2; }
+    .gallery-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
+    }
+    .gallery-item {
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden;
+    }
+    .gallery-item img { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; }
+    .gallery-item figcaption { padding: 8px 10px; font-size: 12px; color: var(--text-dim); }
+
+    @media (max-width: 820px) {
+      .control-panel { width: 240px; padding: 12px; }
+      .legend-panel { display: none; }
+      .gallery-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/build/three.module.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-wrap"></div>
+
+  <div id="loader">
+    <div class="spinner"></div>
+    <div id="loader-text">正在加载星舰 3D 模型 (starship_v1.glb)...</div>
+  </div>
+
+  <header class="hud-header">
+    <div class="hud-title-row">
+      <h1>Starship V1 · 星舰结构三维预览</h1>
+      <span class="hud-badge" id="status-badge">加载中</span>
+    </div>
+    <div class="hud-specs">
+      <span>全长 <strong>96 m</strong></span>
+      <span>翼展 <strong>48 m</strong></span>
+      <span>总高 <strong>44 m</strong></span>
+      <span>甲板 <strong>2 层 (3.6m)</strong></span>
+      <span>乘员 <strong>12 人</strong></span>
+    </div>
+  </header>
+
+  <aside class="legend-panel">
+    <div class="legend-title">内饰功能分区图例</div>
+    <div class="legend-items">
+      <div class="legend-item"><span class="dot" style="background:#73b8eb;"></span>飞行控制 (舰桥/传感/轮机)</div>
+      <div class="legend-item"><span class="dot" style="background:#ebcc9e;"></span>居住生活 (船员舱/餐厅/医疗)</div>
+      <div class="legend-item"><span class="dot" style="background:#fab359;"></span>后勤气闸 (货舱/楼梯/气闸)</div>
+      <div class="legend-item"><span class="dot" style="background:#80ebe6;"></span>能量核心 (隔离舱/反应球)</div>
+      <div class="legend-item"><span class="dot" style="background:#b894eb;"></span>推进动力 (三联主引擎)</div>
+    </div>
+  </aside>
+
+  <aside class="control-panel">
+    <div>
+      <div class="section-label">剖面与显示模式</div>
+      <div class="btn-grid" id="mode-buttons">
+        <button data-mode="intact" class="active">完整外观</button>
+        <button data-mode="side_cabins">纵剖面 · 舱室</button>
+        <button data-mode="side">纵剖面 · 中轴</button>
+        <button data-mode="top_upper">上甲板 (Z+3.6m)</button>
+        <button data-mode="top_lower">下甲板 (Z 0m)</button>
+        <button data-mode="interior_only">仅看内饰</button>
+        <button data-mode="xray" style="grid-column: span 2;">透视外壳 (X-Ray)</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">
+        <span>实时剖切滑块</span>
+        <span id="axis-label" style="color:var(--text-dim); font-weight:400;">关闭</span>
+      </div>
+      <div class="axis-pills" id="axis-buttons">
+        <button data-axis="none" class="active">无</button>
+        <button data-axis="z">纵剖 Z</button>
+        <button data-axis="x">横剖 X</button>
+        <button data-axis="y">水平 Y</button>
+      </div>
+      <div class="slider-row">
+        <div class="slider-meta">
+          <span>剖切位置</span>
+          <span id="slice-val">0.0 m</span>
+        </div>
+        <input type="range" id="slice-slider" min="-25" max="25" step="0.1" value="0" disabled />
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">视角预设</div>
+      <div class="btn-grid" id="view-buttons">
+        <button data-view="hero" class="active">主视角 (3/4)</button>
+        <button data-view="left">左侧视</button>
+        <button data-view="top">俯视图</button>
+        <button data-view="front">正面</button>
+        <button data-view="rear">尾部引擎</button>
+        <button data-view="cutpersp">透视剖面</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">工具与渲染对比</div>
+      <div class="btn-grid">
+        <button id="btn-autorotate">自动旋转：关</button>
+        <button id="btn-reset">重置视角</button>
+        <button id="btn-gallery" class="gold-btn" style="grid-column: span 2;">Cycles 高清渲染图集</button>
+      </div>
+    </div>
+
+    <div class="hint-text">
+      操作提示：左键拖拽旋转 · 右键拖拽平移 · 滚轮缩放。切换到「纵剖面」或「上/下甲板」可实时查看双层舱室细节。
+    </div>
+  </aside>
+
+  <div id="gallery-modal">
+    <div class="gallery-card">
+      <div class="gallery-top">
+        <h2>Cycles 离线渲染预览图集 (1280×720)</h2>
+        <button id="btn-close-gallery">关闭</button>
+      </div>
+      <div class="gallery-grid">
+        <figure class="gallery-item">
+          <img src="../renders/hero_exterior.png" alt="外观四分之三透视图" />
+          <figcaption>完整外观 · 四分之三主视角</figcaption>
+        </figure>
+        <figure class="gallery-item">
+          <img src="../renders/rear_engines.png" alt="尾部三引擎正视图" />
+          <figcaption>尾部三联推进器与双翼环正视图</figcaption>
+        </figure>
+        <figure class="gallery-item">
+          <img src="../renders/side_cutaway.png" alt="纵剖面内饰透视图" />
+          <figcaption>纵剖面 · 双甲板舱室与核心贯通</figcaption>
+        </figure>
+        <figure class="gallery-item">
+          <img src="../renders/top_cutaway.png" alt="上甲板俯视剖面图" />
+          <figcaption>水平剖视 · 上甲板功能区布局</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+    const wrap = document.getElementById('canvas-wrap');
+    const loaderEl = document.getElementById('loader');
+    const loaderText = document.getElementById('loader-text');
+    const statusBadge = document.getElementById('status-badge');
+
+    // 1. Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.localClippingEnabled = true;
+    wrap.appendChild(renderer.domElement);
+
+    // 2. Scene & Studio Environment
+    const scene = new THREE.Scene();
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environmentIntensity = 0.55;
+
+    // 3. Camera & Controls
+    const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.2, 1500);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.minDistance = 8;
+    controls.maxDistance = 320;
+    const SHIP_CENTER = new THREE.Vector3(10, 0, 0);
+
+    // 4. Exterior + Interior Lights
+    const hemi = new THREE.HemisphereLight(0xb8c8ff, 0x1a152e, 0.75);
+    scene.add(hemi);
+
+    const keyLight = new THREE.DirectionalLight(0xfff3e0, 2.2);
+    keyLight.position.set(-60, 85, 90);
+    scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0x9ab8ff, 1.0);
+    fillLight.position.set(85, 35, 65);
+    scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0xb996ff, 1.8);
+    rimLight.position.set(40, 65, -95);
+    scene.add(rimLight);
+
+    const underLight = new THREE.DirectionalLight(0x7890d0, 0.55);
+    underLight.position.set(0, -80, 0);
+    scene.add(underLight);
+
+    // Dedicated interior point lights (mapped from Blender Z-up to glTF Y-up: (x-48, z, -y))
+    const interiorLightsGroup = new THREE.Group();
+    const interiorLightSpecs = [
+      [-40,  2.0,  0, 0x66e8ff,  80, 18], // Sensors
+      [-28,  2.6,  0, 0xa8f2ff, 180, 24], // Bridge
+      [-12,  2.6,  0, 0xffe0b8, 160, 22], // Crew upper
+      [ -1,  2.6,  0, 0xffd194, 140, 20], // Logistics upper
+      [  8,  2.6,  0, 0xc2e6ff, 120, 18], // EngCtrl/ISO upper
+      [  8, -0.6,  0, 0xc2e6ff, 120, 18], // EngCtrl/ISO lower
+      [ 21,  0.0,  0, 0x33ebff, 380, 32], // Energy Core
+      [ 38,  1.5,  0, 0xb2b8ff, 180, 26], // Engine bay upper
+      [ 38, -1.6,  0, 0xb2b8ff, 160, 26], // Engine bay lower
+      [-40, -0.8,  0, 0x7ac8ff,  70, 16], // Avionics lower
+      [-27, -0.6,  0, 0xffdca8, 160, 22], // Mess lower
+      [-12, -0.6,  0, 0xe6f5ff, 140, 20], // Med/LS lower
+      [  2, -0.6,  0, 0xffcc88, 160, 22], // Cargo lower
+    ];
+    for (const [x, y, z, col, intensity, dist] of interiorLightSpecs) {
+      const pl = new THREE.PointLight(col, intensity, dist, 1.4);
+      pl.position.set(x, y, z);
+      interiorLightsGroup.add(pl);
+    }
+    scene.add(interiorLightsGroup);
+
+    // 5. State & Clipping
+    let grpExterior = null;
+    let grpInterior = null;
+    let hullOuterMesh = null;
+    let hullOuterOrigMat = null;
+    let hullXrayMat = null;
+    const allMaterials = [];
+    const clipPlanes = []; // active [THREE.Plane]
+    let currentMode = 'intact';
+    let currentAxis = 'none';
+    let autoRotate = false;
+
+    function applyClippingPlanes(planes) {
+      clipPlanes.length = 0;
+      for (const p of planes) clipPlanes.push(p);
+      for (const mat of allMaterials) {
+        mat.clippingPlanes = clipPlanes;
+        mat.clipShadows = true;
+        mat.needsUpdate = true;
+      }
+    }
+
+    function setCutawayMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('#mode-buttons button').forEach(b => {
+        b.classList.toggle('active', b.dataset.mode === mode);
+      });
+
+      // Reset axis slider highlight when switching preset mode
+      currentAxis = 'none';
+      document.querySelectorAll('#axis-buttons button').forEach(b => {
+        b.classList.toggle('active', b.dataset.axis === 'none');
+      });
+      const slider = document.getElementById('slice-slider');
+      slider.disabled = true;
+      document.getElementById('axis-label').textContent = '关闭';
+      document.getElementById('slice-val').textContent = '预设剖面';
+
+      if (grpExterior) grpExterior.visible = (mode !== 'interior_only');
+      if (grpInterior) grpInterior.visible = true;
+
+      if (hullOuterMesh && hullOuterOrigMat && hullXrayMat) {
+        hullOuterMesh.material = (mode === 'xray') ? hullXrayMat : hullOuterOrigMat;
+      }
+
+      if (mode === 'intact' || mode === 'interior_only' || mode === 'xray') {
+        applyClippingPlanes([]);
+      } else if (mode === 'side_cabins') {
+        applyClippingPlanes([new THREE.Plane(new THREE.Vector3(0, 0, -1), -0.96)]);
+      } else if (mode === 'side') {
+        applyClippingPlanes([new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.0)]);
+      } else if (mode === 'top_upper') {
+        applyClippingPlanes([new THREE.Plane(new THREE.Vector3(0, -1, 0), 2.55)]);
+      } else if (mode === 'top_lower') {
+        applyClippingPlanes([new THREE.Plane(new THREE.Vector3(0, -1, 0), -0.15)]);
+      }
+      window.__viewerDebug.activeMode = mode;
+    }
+
+    // 7. Camera Animation
+    let camAnim = null;
+    const CAMERA_PRESETS = {
+      hero:     { pos: new THREE.Vector3(-88, 48, 102), target: SHIP_CENTER.clone(), modeHint: null },
+      left:     { pos: new THREE.Vector3(12, 2, 148),   target: new THREE.Vector3(12, 0, 0), modeHint: null },
+      top:      { pos: new THREE.Vector3(12, 152, 0.1), target: new THREE.Vector3(12, 0, 0), modeHint: null },
+      front:    { pos: new THREE.Vector3(-128, 2, 0),   target: new THREE.Vector3(0, 0, 0),  modeHint: null },
+      rear:     { pos: new THREE.Vector3(138, 2, 0),    target: new THREE.Vector3(12, 0, 0), modeHint: null },
+      cutpersp: { pos: new THREE.Vector3(-56, 54, 82),  target: SHIP_CENTER.clone(), modeHint: null },
+    };
+
+    function goCameraPreset(key, immediate = false) {
+      const p = CAMERA_PRESETS[key];
+      if (!p) return;
+      document.querySelectorAll('#view-buttons button').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === key);
+      });
+      if (immediate) {
+        camera.position.copy(p.pos);
+        controls.target.copy(p.target);
+        controls.update();
+        camAnim = null;
+      } else {
+        camAnim = {
+          startPos: camera.position.clone(),
+          endPos: p.pos.clone(),
+          startTarget: controls.target.clone(),
+          endTarget: p.target.clone(),
+          t: 0,
+        };
+      }
+    }
+    goCameraPreset('hero', true);
+
+    // 7. Load GLB & Upgrade Materials
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.load(
+      './starship_v1.glb?v=4',
+      (gltf) => {
+        const root = gltf.scene;
+        const upgradedCache = new Map();
+
+        root.traverse((obj) => {
+          if (obj.name === 'GRP_Exterior') grpExterior = obj;
+          if (obj.name === 'GRP_Interior') grpInterior = obj;
+          if (!obj.isMesh) return;
+
+          const origMat = obj.material;
+          if (origMat) {
+            let newMat = upgradedCache.get(origMat.uuid);
+            if (!newMat) {
+              const nm = origMat.name || '';
+              if (nm === 'M_Exterior_HD') {
+                newMat = new THREE.MeshPhysicalMaterial({
+                  name: nm,
+                  color: origMat.color ? origMat.color.clone() : new THREE.Color(0xffffff),
+                  map: origMat.map || null,
+                  normalMap: origMat.normalMap || null,
+                  normalScale: new THREE.Vector2(1.1, 1.1),
+                  roughnessMap: origMat.roughnessMap || null,
+                  metalnessMap: origMat.metalnessMap || null,
+                  roughness: origMat.roughness !== undefined ? origMat.roughness : 1.0,
+                  metalness: origMat.metalness !== undefined ? origMat.metalness : 1.0,
+                  emissive: origMat.emissive ? origMat.emissive.clone() : new THREE.Color(0xffffff),
+                  emissiveMap: origMat.emissiveMap || null,
+                  emissiveIntensity: 1.8,
+                  iridescence: 0.22,
+                  iridescenceIOR: 1.40,
+                  clearcoat: 0.25,
+                  clearcoatRoughness: 0.25,
+                  side: THREE.DoubleSide,
+                });
+              } else if (nm === 'M_Gold') {
+                newMat = new THREE.MeshStandardMaterial({
+                  name: nm,
+                  color: new THREE.Color(0xd18034),
+                  metalness: 0.96,
+                  roughness: 0.25,
+                  side: THREE.DoubleSide,
+                });
+              } else if (nm === 'M_GlowCyan') {
+                newMat = new THREE.MeshStandardMaterial({
+                  name: nm,
+                  color: new THREE.Color(0x28d7ff),
+                  emissive: new THREE.Color(0x1fd8ff),
+                  emissiveIntensity: 2.4,
+                  roughness: 0.2,
+                  side: THREE.DoubleSide,
+                });
+              } else if (nm === 'M_GlowRed') {
+                newMat = new THREE.MeshStandardMaterial({
+                  name: nm,
+                  color: new THREE.Color(0xff2b38),
+                  emissive: new THREE.Color(0xff1e2d),
+                  emissiveIntensity: 2.4,
+                  roughness: 0.2,
+                  side: THREE.DoubleSide,
+                });
+              } else {
+                newMat = origMat.clone();
+                newMat.side = THREE.DoubleSide;
+              }
+              upgradedCache.set(origMat.uuid, newMat);
+              allMaterials.push(newMat);
+            }
+            obj.material = newMat;
+
+            if (obj.name === 'Hull_Outer') {
+              hullOuterMesh = obj;
+              hullOuterOrigMat = newMat;
+              hullXrayMat = new THREE.MeshPhysicalMaterial({
+                name: 'M_Hull_XRay',
+                color: new THREE.Color(0x5234b5),
+                metalness: 0.4,
+                roughness: 0.2,
+                transparent: true,
+                opacity: 0.22,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+              });
+              allMaterials.push(hullXrayMat);
+            }
+          }
+        });
+
+        scene.add(root);
+        let meshCount = 0;
+        root.traverse((o) => { if (o.isMesh) meshCount++; });
+
+        window.__viewerDebug = {
+          loaded: true,
+          meshCount,
+          materialCount: allMaterials.length,
+          activeMode: currentMode,
+          errors: [],
+        };
+
+        statusBadge.textContent = `已就绪 · ${meshCount} 部件`;
+        loaderEl.classList.add('hidden');
+      },
+      (xhr) => {
+        if (xhr.total > 0) {
+          const pct = Math.round((xhr.loaded / xhr.total) * 100);
+          loaderText.textContent = `正在加载星舰 3D 模型... ${pct}%`;
+        }
+      },
+      (err) => {
+        console.error('GLB load error:', err);
+        loaderText.textContent = `模型加载失败: ${err.message || err}`;
+        statusBadge.textContent = '加载异常';
+        window.__viewerDebug.errors.push(String(err));
+      }
+    );
+
+    window.__viewerDebug = { loaded: false, meshCount: 0, materialCount: 0, activeMode: 'intact', errors: [] };
+
+    // 9. UI Listeners
+    document.querySelectorAll('#mode-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setCutawayMode(btn.dataset.mode);
+        if (btn.dataset.mode === 'top_upper' || btn.dataset.mode === 'top_lower') {
+          goCameraPreset('top');
+        } else if (btn.dataset.mode === 'side_cabins' || btn.dataset.mode === 'side') {
+          goCameraPreset('left');
+        }
+      });
+    });
+
+    const axisConfigs = {
+      none: { label: '关闭', min: -25, max: 25, val: 0 },
+      z:    { label: '纵剖 (左右)', min: -14, max: 14, val: 0 },
+      x:    { label: '横剖 (首尾)', min: -48, max: 52, val: 0 },
+      y:    { label: '水平 (上下)', min: -10, max: 12, val: 3.1 },
+    };
+
+    const sliceSlider = document.getElementById('slice-slider');
+    const sliceVal = document.getElementById('slice-val');
+    const axisLabel = document.getElementById('axis-label');
+
+    function updateCustomSlice() {
+      if (currentAxis === 'none') return;
+      const v = parseFloat(sliceSlider.value);
+      sliceVal.textContent = `${v.toFixed(1)} m`;
+      if (currentAxis === 'z') {
+        applyClippingPlanes([new THREE.Plane(new THREE.Vector3(0, 0, -1), v)]);
+      } else if (currentAxis === 'x') {
+        applyClippingPlanes([new THREE.Plane(new THREE.Vector3(-1, 0, 0), v)]);
+      } else if (currentAxis === 'y') {
+        applyClippingPlanes([new THREE.Plane(new THREE.Vector3(0, -1, 0), v)]);
+      }
+    }
+
+    document.querySelectorAll('#axis-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        currentAxis = btn.dataset.axis;
+        document.querySelectorAll('#axis-buttons button').forEach(b => b.classList.toggle('active', b === btn));
+        document.querySelectorAll('#mode-buttons button').forEach(b => b.classList.remove('active'));
+        if (grpExterior) grpExterior.visible = true;
+        if (hullOuterMesh && hullOuterOrigMat) hullOuterMesh.material = hullOuterOrigMat;
+
+        const cfg = axisConfigs[currentAxis];
+        axisLabel.textContent = cfg.label;
+        if (currentAxis === 'none') {
+          sliceSlider.disabled = true;
+          sliceVal.textContent = '0.0 m';
+          setCutawayMode('intact');
+        } else {
+          sliceSlider.disabled = false;
+          sliceSlider.min = cfg.min;
+          sliceSlider.max = cfg.max;
+          sliceSlider.value = cfg.val;
+          updateCustomSlice();
+        }
+      });
+    });
+
+    sliceSlider.addEventListener('input', updateCustomSlice);
+
+    document.querySelectorAll('#view-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => goCameraPreset(btn.dataset.view));
+    });
+
+    const btnAuto = document.getElementById('btn-autorotate');
+    btnAuto.addEventListener('click', () => {
+      autoRotate = !autoRotate;
+      controls.autoRotate = autoRotate;
+      controls.autoRotateSpeed = 0.85;
+      btnAuto.textContent = `自动旋转：${autoRotate ? '开' : '关'}`;
+      btnAuto.classList.toggle('active', autoRotate);
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      setCutawayMode('intact');
+      goCameraPreset('hero');
+    });
+
+    const modal = document.getElementById('gallery-modal');
+    document.getElementById('btn-gallery').addEventListener('click', () => modal.classList.add('open'));
+    document.getElementById('btn-close-gallery').addEventListener('click', () => modal.classList.remove('open'));
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('open'); });
+
+    // 10. Resize & Render Loop
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      if (camAnim) {
+        camAnim.t = Math.min(1, camAnim.t + dt * 2.4);
+        const s = camAnim.t * camAnim.t * (3 - 2 * camAnim.t);
+        camera.position.lerpVectors(camAnim.startPos, camAnim.endPos, s);
+        controls.target.lerpVectors(camAnim.startTarget, camAnim.endTarget, s);
+        if (camAnim.t >= 1) camAnim = null;
+      }
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

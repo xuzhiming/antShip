@@ -1,0 +1,10 @@
+web/node_modules/
+.DS_Store
+*.blend1
+__pycache__/
+textures/hd_left.png
+textures/hd_right.png
+textures/hd_top.png
+textures/hd_bottom.png
+textures/hd_front.png
+textures/hd_rear.png

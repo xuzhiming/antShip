@@ -1,0 +1,9 @@
+{
+  "name": "antship-starship-preview",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local interactive 3D web viewer for Starship V1",
+  "dependencies": {
+    "three": "^0.187.0"
+  }
+}
