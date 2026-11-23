@@ -485,7 +485,7 @@
     // 7. Load GLB & Upgrade Materials
     const gltfLoader = new GLTFLoader();
     gltfLoader.load(
-      './starship_v1.glb?v=4',
+      './starship_v1.glb?v=5',
       (gltf) => {
         const root = gltf.scene;
         const upgradedCache = new Map();
@@ -518,6 +518,44 @@
                   iridescenceIOR: 1.40,
                   clearcoat: 0.25,
                   clearcoatRoughness: 0.25,
+                  side: THREE.DoubleSide,
+                });
+              } else if (nm === 'M_NozzleCyan') {
+                newMat = new THREE.MeshStandardMaterial({
+                  name: nm,
+                  color: new THREE.Color(0x05b8f2),
+                  emissive: new THREE.Color(0x05dbff),
+                  emissiveIntensity: 2.0,
+                  roughness: 0.18,
+                  side: THREE.DoubleSide,
+                });
+              } else if (nm === 'M_NozzleHotCore') {
+                newMat = new THREE.MeshStandardMaterial({
+                  name: nm,
+                  color: new THREE.Color(0xd9fcff),
+                  emissive: new THREE.Color(0xd0fbff),
+                  emissiveIntensity: 3.2,
+                  roughness: 0.12,
+                  side: THREE.DoubleSide,
+                });
+              } else if (nm === 'M_NozzlePurple') {
+                newMat = new THREE.MeshStandardMaterial({
+                  name: nm,
+                  color: new THREE.Color(0x3a2068),
+                  metalness: 0.75,
+                  roughness: 0.34,
+                  side: THREE.DoubleSide,
+                });
+              } else if (nm === 'M_NozzleFace_C' || nm === 'M_NozzleFace_S') {
+                newMat = new THREE.MeshStandardMaterial({
+                  name: nm,
+                  color: origMat.color ? origMat.color.clone() : new THREE.Color(0xffffff),
+                  map: origMat.map || null,
+                  emissive: origMat.emissive ? origMat.emissive.clone() : new THREE.Color(0xffffff),
+                  emissiveMap: origMat.emissiveMap || null,
+                  emissiveIntensity: 1.6,
+                  metalness: 0.65,
+                  roughness: 0.35,
                   side: THREE.DoubleSide,
                 });
               } else if (nm === 'M_Gold') {
